@@ -1,6 +1,11 @@
 package fleastore
 
 import (
+	"bufio"
+	"bytes"
+	"encoding/json"
+	"io"
+	"os"
 	"sync"
 )
 
@@ -43,14 +48,18 @@ type record[T any] struct {
 }
 
 type Store[ID comparable, T any] struct {
-	mu       sync.Mutex
-	records  []*record[T]
-	dir      string
-	wal      *wal[ID, T]
-	idFunc   IDFunc[ID, T]
-	index    map[ID]*record[T]
-	dirty    bool
-	checkers []Checker[T]
+	mu             sync.Mutex
+	records        []record[T]
+	dir            string
+	wal            *wal[ID, T]
+	idFunc         IDFunc[ID, T]
+	index          map[ID]int
+	dirty          bool
+	checkers       []Checker[T]
+	residencyFn    func(T) bool
+	hasOfflineData bool
+	maxOnline      int
+	onlineCount    int
 }
 
 // Put inserts a record or update in case the id is already in the index.
@@ -94,6 +103,8 @@ func (s *Store[ID, T]) Put(value T) (ID, error) {
 	}
 
 	s.addOrUpdate(id, &value)
+
+	s.handleResidency()
 
 	return id, nil
 
@@ -144,6 +155,8 @@ func (s *Store[ID, T]) PutAll(values []T) ([]ID, error) {
 		s.addOrUpdate(p.ID, &p.Value)
 	}
 
+	s.handleResidency()
+
 	return ids, nil
 }
 
@@ -159,9 +172,19 @@ func (s *Store[ID, T]) Get(p Predicate[T]) []T {
 		if r.deleted {
 			continue
 		}
+		if r.value == nil {
+			continue
+		}
 		if p(*r.value) {
 			out = append(out, *r.value)
 		}
+	}
+	if s.hasOfflineData {
+		offline, err := s.getOfflineMatching(p)
+		if err != nil {
+			return out
+		}
+		out = append(out, offline...)
 	}
 	return out
 }
@@ -197,7 +220,13 @@ func Open[ID comparable, T any](opts Options[ID, T]) (*Store[ID, T], error) {
 		idFunc:   opts.IDFunc,
 		index:    make(map[ID]*record[T]),
 		checkers: opts.Checkers,
+		residencyFn: opts.ResidencyFunc,
+		maxOnline:   *opts.MaxOnlineRecords,
 	}
+
+	s.makeDirs()
+
+	s.handleDataFile(s.residencyFn)
 
 	if err := s.loadSnapshot(); err != nil {
 		return nil, err
@@ -212,6 +241,10 @@ func Open[ID comparable, T any](opts Options[ID, T]) (*Store[ID, T], error) {
 		return nil, err
 	}
 	s.wal = w
+
+	if _, err := os.Stat(s.getDataPath()); err == nil {
+		s.hasOfflineData = true
+	}
 
 	go s.snapshotLoop(opts.SnapshotInterval)
 
@@ -235,6 +268,7 @@ func (s *Store[ID, T]) addOrUpdate(id ID, value *T) {
 	} else {
 		s.records = append(s.records, &record[T]{value: value})
 		s.index[id] = s.records[len(s.records)-1]
+		s.onlineCount++
 	}
 }
 
@@ -253,4 +287,60 @@ func (s *Store[ID, T]) runCheckers(old *T, new T) (*T, error) {
 		return &new, nil
 	}
 	return current, nil
+}
+
+func (s *Store[ID, T]) getOfflineMatching(predicate func(T) bool) ([]T, error) {
+
+	file, err := os.Open(s.getDataPath()) // caminho completo de data.ndjson
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	const batchSize = 1000
+
+	reader := bufio.NewReader(file)
+
+	var result []T
+	batch := make([]T, 0, batchSize)
+
+	for {
+		line, err := reader.ReadBytes('\n')
+		if err != nil && err != io.EOF {
+			return nil, err
+		}
+
+		if len(bytes.TrimSpace(line)) > 0 {
+			var v T
+			if err := json.Unmarshal(line, &v); err != nil {
+				return nil, err
+			}
+			batch = append(batch, v)
+		}
+
+		// Processa batch completo
+		if len(batch) == batchSize {
+			for _, v := range batch {
+				if predicate(v) {
+					result = append(result, v)
+				}
+			}
+			batch = batch[:0]
+		}
+
+		if err == io.EOF {
+			break
+		}
+	}
+
+	// Processa batch final (incompleto)
+	if len(batch) > 0 {
+		for _, v := range batch {
+			if predicate(v) {
+				result = append(result, v)
+			}
+		}
+	}
+
+	return result, nil
 }

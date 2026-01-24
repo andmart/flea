@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+var LOW int = -1
+
 type Options[ID comparable, T any] struct {
 	// Path to local where store will be created.
 	Dir string
@@ -15,6 +17,9 @@ type Options[ID comparable, T any] struct {
 	SnapshotInterval time.Duration
 	IDFunc           IDFunc[ID, T]
 	Checkers         []Checker[T]
+	// Experimental: controls which records remain resident in memory
+	ResidencyFunc    func(T) bool
+	MaxOnlineRecords *int
 }
 
 func DefaultIDFunc[ID uint64, T any](v T) (uint64, error) {
@@ -41,6 +46,10 @@ func (o *Options[ID, T]) Validate() error {
 
 	if o.Checkers == nil {
 		o.Checkers = []Checker[T]{}
+	}
+
+	if o.MaxOnlineRecords == nil {
+		o.MaxOnlineRecords = &LOW
 	}
 
 	if o.IDFunc == nil {

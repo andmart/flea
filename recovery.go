@@ -28,6 +28,7 @@ func (s *Store[ID, T]) replayWAL() error {
 		}
 	}
 	truncate(f)
+	s.handleResidency()
 	return nil
 }
 
