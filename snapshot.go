@@ -32,7 +32,7 @@ func (s *Store[ID, T]) loadSnapshot() error {
 		if err := json.Unmarshal(sc.Bytes(), &i); err != nil {
 			return err
 		}
-		s.records = append(s.records, record[T]{value: i})
+		s.records = append(s.records, &record[T]{value: &i})
 	}
 	s.recreateIndex()
 	return nil
@@ -80,16 +80,16 @@ func (s *Store[ID, T]) snapshot() error {
 }
 
 func (s *Store[ID, T]) compact() {
-	out := make([]record[T], 0, len(s.index))
-	newIndex := make(map[ID]int, len(s.index))
+	out := make([]*record[T], 0, len(s.index))
+	newIndex := make(map[ID]*record[T], len(s.index))
 
-	for _, r := range s.records {
-		if r.deleted {
+	for _, rec := range s.records {
+		if rec.deleted {
 			continue
 		}
-		id, _ := s.idFunc(r.value)
-		newIndex[id] = len(out) - 1
-		out = append(out, r)
+		id, _ := s.idFunc(*rec.value)
+		newIndex[id] = rec
+		out = append(out, rec)
 	}
 	s.records = out
 	s.index = newIndex
@@ -98,12 +98,12 @@ func (s *Store[ID, T]) compact() {
 func (s *Store[ID, T]) recreateIndex() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.index = make(map[ID]int)
-	for i, rec := range s.records {
-		id, err := s.idFunc(rec.value)
+	s.index = make(map[ID]*record[T])
+	for _, rec := range s.records {
+		id, err := s.idFunc(*rec.value)
 		if err != nil {
 			continue
 		}
-		s.index[id] = i
+		s.index[id] = rec
 	}
 }

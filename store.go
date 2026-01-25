@@ -38,17 +38,17 @@ type Checker[T any] func(old *T, new T) (*T, error)
 type IDFunc[ID comparable, T any] func(T) (ID, error)
 
 type record[T any] struct {
-	value   T
+	value   *T
 	deleted bool
 }
 
 type Store[ID comparable, T any] struct {
 	mu       sync.Mutex
-	records  []record[T]
+	records  []*record[T]
 	dir      string
 	wal      *wal[ID, T]
 	idFunc   IDFunc[ID, T]
-	index    map[ID]int
+	index    map[ID]*record[T]
 	dirty    bool
 	checkers []Checker[T]
 }
@@ -66,9 +66,9 @@ func (s *Store[ID, T]) Put(value T) (ID, error) {
 
 	var current *T
 
-	if idx, ok := s.index[id]; ok {
-		tmp := s.records[idx].value
-		current = &tmp
+	if rec, ok := s.index[id]; ok {
+		tmp := rec.value
+		current = tmp
 	}
 
 	value2, err := s.runCheckers(current, value)
@@ -93,7 +93,7 @@ func (s *Store[ID, T]) Put(value T) (ID, error) {
 		return zero, err
 	}
 
-	s.addOrUpdate(id, value)
+	s.addOrUpdate(id, &value)
 
 	return id, nil
 
@@ -115,9 +115,9 @@ func (s *Store[ID, T]) PutAll(values []T) ([]ID, error) {
 
 		var current *T
 
-		if idx, ok := s.index[id]; ok {
-			tmp := s.records[idx].value
-			current = &tmp
+		if rec, ok := s.index[id]; ok {
+			tmp := rec.value
+			current = tmp
 		}
 
 		_, err = s.runCheckers(current, value)
@@ -141,7 +141,7 @@ func (s *Store[ID, T]) PutAll(values []T) ([]ID, error) {
 		return nil, err
 	}
 	for _, p := range pending {
-		s.addOrUpdate(p.ID, p.Value)
+		s.addOrUpdate(p.ID, &p.Value)
 	}
 
 	return ids, nil
@@ -159,8 +159,8 @@ func (s *Store[ID, T]) Get(p Predicate[T]) []T {
 		if r.deleted {
 			continue
 		}
-		if p(r.value) {
-			out = append(out, r.value)
+		if p(*r.value) {
+			out = append(out, *r.value)
 		}
 	}
 	return out
@@ -171,16 +171,15 @@ func (s *Store[ID, T]) Delete(p Predicate[T]) ([]T, error) {
 	defer s.mu.Unlock()
 
 	var out []T
-	for id, i := range s.index {
-		r := s.records[i]
-		if !r.deleted && p(r.value) {
-			err := s.wal.append([]walOp[ID, T]{{Op: opDelete, ID: id}})
+	for idx, rec := range s.index {
+		if !rec.deleted && p(*rec.value) {
+			err := s.wal.append([]walOp[ID, T]{{Op: opDelete, ID: idx}})
 			if err != nil {
 				return nil, err
 			}
-			s.records[i].deleted = true
-			delete(s.index, id)
-			out = append(out, r.value)
+			rec.deleted = true
+			delete(s.index, idx)
+			out = append(out, *rec.value)
 			s.dirty = true
 		}
 	}
@@ -196,7 +195,7 @@ func Open[ID comparable, T any](opts Options[ID, T]) (*Store[ID, T], error) {
 	s := &Store[ID, T]{
 		dir:      opts.Dir,
 		idFunc:   opts.IDFunc,
-		index:    make(map[ID]int),
+		index:    make(map[ID]*record[T]),
 		checkers: opts.Checkers,
 	}
 
@@ -229,15 +228,13 @@ func (s *Store[ID, T]) Close() error {
 	return nil
 }
 
-func (s *Store[ID, T]) addOrUpdate(id ID, value T) {
-	if idx, ok := s.index[id]; ok {
-		s.records[idx].value = value
-		s.records[idx].deleted = false
+func (s *Store[ID, T]) addOrUpdate(id ID, value *T) {
+	if rec, ok := s.index[id]; ok {
+		rec.value = value
+		rec.deleted = false
 	} else {
-		s.records = append(s.records, record[T]{
-			value: value,
-		})
-		s.index[id] = len(s.records) - 1
+		s.records = append(s.records, &record[T]{value: value})
+		s.index[id] = s.records[len(s.records)-1]
 	}
 }
 
