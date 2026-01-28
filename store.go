@@ -49,11 +49,11 @@ type record[T any] struct {
 
 type Store[ID comparable, T any] struct {
 	mu             sync.Mutex
-	records        []record[T]
+	records        []*record[T]
 	dir            string
 	wal            *wal[ID, T]
 	idFunc         IDFunc[ID, T]
-	index          map[ID]int
+	index          map[ID]*record[T]
 	dirty          bool
 	checkers       []Checker[T]
 	residencyFn    func(T) bool
@@ -146,7 +146,6 @@ func (s *Store[ID, T]) PutAll(values []T) ([]ID, error) {
 		ids = append(ids, id)
 
 	}
-
 	// Phase 2: commit
 	if err := s.wal.append(pending); err != nil {
 		return nil, err
@@ -216,10 +215,10 @@ func Open[ID comparable, T any](opts Options[ID, T]) (*Store[ID, T], error) {
 	}
 
 	s := &Store[ID, T]{
-		dir:      opts.Dir,
-		idFunc:   opts.IDFunc,
-		index:    make(map[ID]*record[T]),
-		checkers: opts.Checkers,
+		dir:         opts.Dir,
+		idFunc:      opts.IDFunc,
+		index:       make(map[ID]*record[T]),
+		checkers:    opts.Checkers,
 		residencyFn: opts.ResidencyFunc,
 		maxOnline:   *opts.MaxOnlineRecords,
 	}
@@ -291,7 +290,7 @@ func (s *Store[ID, T]) runCheckers(old *T, new T) (*T, error) {
 
 func (s *Store[ID, T]) getOfflineMatching(predicate func(T) bool) ([]T, error) {
 
-	file, err := os.Open(s.getDataPath()) // caminho completo de data.ndjson
+	file, err := os.Open(s.getDataPath())
 	if err != nil {
 		return nil, err
 	}
@@ -318,7 +317,6 @@ func (s *Store[ID, T]) getOfflineMatching(predicate func(T) bool) ([]T, error) {
 			batch = append(batch, v)
 		}
 
-		// Processa batch completo
 		if len(batch) == batchSize {
 			for _, v := range batch {
 				if predicate(v) {
@@ -333,7 +331,6 @@ func (s *Store[ID, T]) getOfflineMatching(predicate func(T) bool) ([]T, error) {
 		}
 	}
 
-	// Processa batch final (incompleto)
 	if len(batch) > 0 {
 		for _, v := range batch {
 			if predicate(v) {

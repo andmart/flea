@@ -58,6 +58,9 @@ func (s *Store[ID, T]) snapshot() error {
 
 	enc := json.NewEncoder(f)
 	for _, r := range s.records {
+		if r.value == nil {
+			continue
+		}
 		if r.deleted {
 			continue
 		}

@@ -1,9 +1,7 @@
 package fleastore
 
 import (
-	"encoding/json"
 	"errors"
-	"hash/fnv"
 	"time"
 )
 
@@ -20,17 +18,6 @@ type Options[ID comparable, T any] struct {
 	// Experimental: controls which records remain resident in memory
 	ResidencyFunc    func(T) bool
 	MaxOnlineRecords *int
-}
-
-func DefaultIDFunc[ID uint64, T any](v T) (uint64, error) {
-	data, err := json.Marshal(v)
-	if err != nil {
-		return 0, err
-	}
-
-	h := fnv.New64a()
-	_, _ = h.Write(data)
-	return h.Sum64(), nil
 }
 
 func (o *Options[ID, T]) Validate() error {
