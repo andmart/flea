@@ -1,7 +1,7 @@
 package fleastore
 
 import (
-	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -15,14 +15,24 @@ func (s *Store[ID, T]) getWalPath() string {
 	return s.getPath("wal.log")
 }
 
-func (s *Store[ID, T]) getPath(suffix string) string {
-	return filepath.Join(s.dir, s.getName(suffix))
+func (s *Store[ID, T]) getDataPath() string {
+	return s.getPath("data.ndjson")
 }
 
-func (s *Store[ID, T]) getName(suffix string) string {
+func (s *Store[ID, T]) getPath(file string) string {
+	modelDir := filepath.Join(s.dir, s.getModelName())
+	return filepath.Join(modelDir, file)
+}
+
+func (s *Store[ID, T]) getModelName() string {
 	var zero T
 	cls := sanitizeTypeName(reflect.TypeOf(zero).String())
-	return fmt.Sprintf("%s-%s", cls, suffix)
+	return cls
+}
+
+func (s *Store[ID, T]) makeDirs() {
+	path := s.getPath("")
+	os.MkdirAll(path, os.ModePerm)
 }
 
 func sanitizeTypeName(name string) string {
@@ -34,4 +44,24 @@ func sanitizeTypeName(name string) string {
 		"]", "",
 	)
 	return strings.ToLower(replacer.Replace(name))
+}
+
+func (s *Store[ID, T]) handleDataFile(f func(T) bool) error {
+
+	if f != nil {
+		dataPath := s.getDataPath()
+
+		f, err := os.OpenFile(
+			dataPath,
+			os.O_CREATE|os.O_RDWR,
+			0644,
+		)
+		if err != nil {
+			return err
+		}
+
+		_ = f.Close()
+		s.hasOfflineData = true
+	}
+	return nil
 }

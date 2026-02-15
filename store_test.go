@@ -8,9 +8,14 @@ import (
 )
 
 type User struct {
-	Id   uint64
-	Name string
-	Age  int
+	Id        uint64
+	Name      string
+	Email     string
+	Age       int
+	Country   string
+	Active    bool
+	Score     float64
+	CreatedAt int64
 }
 
 type Order struct {

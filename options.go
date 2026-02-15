@@ -1,11 +1,11 @@
 package fleastore
 
 import (
-	"encoding/json"
 	"errors"
-	"hash/fnv"
 	"time"
 )
+
+var LOW int = -1
 
 type Options[ID comparable, T any] struct {
 	// Path to local where store will be created.
@@ -15,17 +15,9 @@ type Options[ID comparable, T any] struct {
 	SnapshotInterval time.Duration
 	IDFunc           IDFunc[ID, T]
 	Checkers         []Checker[T]
-}
-
-func DefaultIDFunc[ID uint64, T any](v T) (uint64, error) {
-	data, err := json.Marshal(v)
-	if err != nil {
-		return 0, err
-	}
-
-	h := fnv.New64a()
-	_, _ = h.Write(data)
-	return h.Sum64(), nil
+	// Experimental: controls which records remain resident in memory
+	ResidencyFunc      func(T) bool
+	MaxInMemoryRecords *int
 }
 
 func (o *Options[ID, T]) Validate() error {
@@ -41,6 +33,10 @@ func (o *Options[ID, T]) Validate() error {
 
 	if o.Checkers == nil {
 		o.Checkers = []Checker[T]{}
+	}
+
+	if o.MaxInMemoryRecords == nil {
+		o.MaxInMemoryRecords = &LOW
 	}
 
 	if o.IDFunc == nil {

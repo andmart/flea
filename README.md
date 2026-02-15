@@ -12,13 +12,13 @@ Typical use cases include:
 
 FleaStore is a library, not a standalone server.
 
----
+------------------------------------------------------------------------
 
 ## About the examples
 
 Throughout this document, examples use a simple `User` type to illustrate how the API is used:
 
-```go
+``` go
 type User struct {
     Id   uint64
     Name string
@@ -26,25 +26,31 @@ type User struct {
 }
 ```
 
-`User` is only an example.  
+`User` is only an example.\
 FleaStore works with **any** type.
 
----
+------------------------------------------------------------------------
 
 ## Overview
 
-At its core, FleaStore stores values of any type and identifies them using a function provided by the user.
+At its core, FleaStore stores values of any type and identifies them
+using a function provided by the user.
 
-```go
+``` go
 Store[ID, T]
 ```
 
-- `ID` is the identifier type (for example `uint64` or `string`)
-- `T` is the value being stored
+-   `ID` is the identifier type
+-   `T` is the value being stored
 
-The store keeps data in memory and uses a Write-Ahead Log (WAL) to recover from crashes.
+The store:
 
----
+-   Preserves insertion order
+-   Uses append-only persistence
+-   Supports logical deletion
+-   Supports physical offloading of data to disk (offline state)
+
+------------------------------------------------------------------------
 
 ## Identity and IDFunc
 
@@ -52,7 +58,7 @@ Every value stored in FleaStore has an ID.
 
 The ID is computed using a user-provided function:
 
-```go
+``` go
 type IDFunc[ID, T any] func(T) (ID, error)
 ```
 
@@ -64,14 +70,15 @@ This function:
 FleaStore does not generate hidden IDs or keys.  
 If two values produce the same ID, they refer to the same record.
 
----
+------------------------------------------------------------------------
 
 ## Opening a Store
 
 A store is created using `Open`:
 
-```go
+``` go
 store, err := Open[uint64, User](Options[uint64, User]{
+    Dir: "...",
     IDFunc: func(u User) (uint64, error) {
         return u.Id, nil
     },
@@ -85,34 +92,38 @@ When a store is opened:
 
 If `Open` returns an error, the store was not created.
 
----
+------------------------------------------------------------------------
 
 ## Options
 
 `Options` controls how a Store is configured when it is opened.
 
-```go
+``` go
 type Options[ID comparable, T any] struct {
     Dir              string
     SnapshotInterval time.Duration
     IDFunc           IDFunc[ID, T]
     Checkers         []Checker[T]
+
+    ResidencyFunc    ResidencyFunc[T]
+    MaxOnline        *int
 }
 ```
 
+------------------------------------------------------------------------
+
 ### Dir
 
-``` go 
-Dir string
-```
+Directory used for persistence. If not provided, current dir will be used.
 
-`Dir` specifies the folder where FleaStore will store its data.
+Layout:
 
-This directory is used to persist:
+    /data/<model>/
+      snapshot.ndjson
+      wal.log
+      data.ndjson
 
-- The Write-Ahead Log (WAL)
-- Snapshots
-
+------------------------------------------------------------------------
 
 ### SnapshotInterval (optional)
 
@@ -120,8 +131,10 @@ This directory is used to persist:
 SnapshotInterval time.Duration
 ```
 
-`SnapshotInterval` defines how often FleaStore should create snapshots of its state.
+Defines how often a snapshot is created. If not provided, it defaults to 30s.
 
+
+------------------------------------------------------------------------
 
 ### IDFunc (required)
 
@@ -136,9 +149,7 @@ Rules:
 - The function must be deterministic
 - Identity depends exclusively on this function
 
-If `IDFunc` is not provided, opening the store fails.
-
----
+------------------------------------------------------------------------
 
 ### Checkers (optional)
 
@@ -157,13 +168,33 @@ If no checkers are provided, values are written as-is.
 
 Checkers are applied only to new write operations and are not executed during recovery.
 
----
+
+## Residency
+
+
+Residency controls which records remain in memory.
+
+### ResidencyFunc (optional)
+
+Defines whether a record should remain in memory or be moved to the disk.
+
+If it returns `false`, the record may be moved to the disk.
+
+### MaxInMemoryRecords (optional)
+
+Limits how many records remain in memory.
+
+-   `nil` → unlimited
+-   `-1` → residency always allowed to run
+-   `>0` → caps the number of in-memory records. ResidencyFunc will not run if the limit is not exceeded.
+
+------------------------------------------------------------------------
 
 ## Writing Data
 
 ### Put
 
-```go
+``` go
 id, err := store.Put(value)
 ```
 
@@ -178,11 +209,11 @@ Errors may be returned if:
 - The ID function fails
 - A checker rejects the value
 
----
+------------------------------------------------------------------------
 
 ### PutAll
 
-```go
+``` go
 ids, err := store.PutAll(values)
 ```
 
@@ -198,20 +229,25 @@ This method is useful for:
 - Initial data loading
 - Tests
 
----
+Offline data is not stored in WAL.
+
+------------------------------------------------------------------------
 
 ## Reading Data
 
 ### Get
 
-```go
-results := store.Get(predicate)
+``` go
+results, err := store.Get(predicate)
 ```
 
-`Get` returns stored values that match a predicate.
+`Get`:
 
-- Values are returned in insertion order
-- Deleted values are ignored
+-   Scans in insertion order
+-   Ignores logically deleted records
+-   Evaluates both:
+    -   Online records (in memory)
+    -   Offline records (loaded in chunks from disk)
 
 Example:
 
@@ -221,13 +257,13 @@ adults := store.Get(func(u User) bool {
 })
 ```
 
----
+`Get` may perform disk I/O if offline data exists.
 
-## Deleting Data
+------------------------------------------------------------------------
 
-### Delete
+## Delete
 
-```go
+``` go
 deleted, err := store.Delete(predicate)
 ```
 
@@ -239,7 +275,8 @@ deleted, err := store.Delete(predicate)
 
 If no values match the predicate, the operation succeeds and returns an empty slice.
 
----
+------------------------------------------------------------------------
+
 
 ## Predicates
 
@@ -254,63 +291,85 @@ They should:
 - Avoid side effects
 - Not modify the value
 
-Predicates are intended for straightforward filtering, not complex querying.
-
----
+------------------------------------------------------------------------
 
 ## Checkers
 
 Checkers allow you to validate or adjust values before they are written.
 
-```go
+``` go
 type Checker[T any] func(old *T, new T) (*T, error)
 ```
 
-Basic behavior:
-- Returning an error blocks the write
-- Returning a value replaces the input
-- Returning `(nil, nil)` keeps the existing value
+-   Can reject writes
+-   Can transform values
+-   Only applied during new writes
+-   Not executed during recovery
+
 
 Checkers are only applied to new writes and updates.  
 Recovered data is restored exactly as it was written.
 
----
+------------------------------------------------------------------------
 
-## Persistence
+## Persistence Model
 
-FleaStore uses a Write-Ahead Log (WAL) to recover from crashes.
+FleaStore uses:
 
-- Every change is recorded before being applied
-- On startup, the log is replayed to rebuild the state
-- After recovery, the log is cleared
+### WAL
 
-The WAL exists only to restore state.
+-   Append-only
+-   Contains only Put and Delete operations
+-   Used only for crash recovery
+-   Truncated after successful replay
+-   Does not contain offline data
 
----
+### Snapshot
+
+-   Speeds up startup
+-   Compatible with WAL
+-   Respects residency limits
+
+### Offline Data
+
+-   Stored in `data.ndjson`
+-   Append-only
+-   Loaded on demand during `Get`
+
+------------------------------------------------------------------------
 
 ## Concurrency
 
-FleaStore is safe to use from multiple goroutines.
+FleaStore is safe for concurrent use.
 
-Operations are executed sequentially to ensure consistency.
+Internal operations are protected by mutex.
 
-For best results, avoid long-running work inside predicates or checkers.
+To maintain predictability:
 
----
+-   Avoid long-running predicates
+-   Avoid blocking work inside checkers
 
-## Design Goals
+------------------------------------------------------------------------
 
-FleaStore intentionally avoids many features found in larger databases:
+## Design Principles
 
-- No pagination
-- No query language
-- No secondary indexes
-- No background threads
-- No external dependencies
+FleaStore intentionally avoids:
 
-These choices keep the system small, predictable, and easy to reason about.
+-   Relational features
+-   Secondary indexes
+-   LSM trees
+-   Query languages
+-   Hidden background compaction
+-   Automatic magic
 
----
+It favors:
+
+-   Explicit control
+-   Predictable behavior
+-   Append-only persistence
+-   Simple data structures
+
+------------------------------------------------------------------------
 
 ## Status
 
@@ -318,7 +377,7 @@ FleaStore is experimental and evolving.
 
 The API may change, but changes are made carefully and with a focus on clarity.
 
----
+------------------------------------------------------------------------
 
 ## License
 

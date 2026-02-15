@@ -22,12 +22,13 @@ func (s *Store[ID, T]) replayWAL() error {
 		}
 		switch op.Op {
 		case opPut:
-			s.addOrUpdate(op.ID, op.Value)
+			s.addOrUpdate(op.ID, &op.Value)
 		case opDelete:
 			s.deleteByID(op.ID)
 		}
 	}
 	truncate(f)
+	s.handleResidency()
 	return nil
 }
 
@@ -40,12 +41,12 @@ func truncate(f *os.File) error {
 }
 
 func (s *Store[ID, T]) deleteByID(id ID) {
-	i, ok := s.index[id]
+	rec, ok := s.index[id]
 	if !ok {
 		return
 	}
 
-	s.records[i].deleted = true
+	rec.deleted = true
 	delete(s.index, id)
 
 	s.dirty = true
