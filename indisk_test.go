@@ -42,7 +42,7 @@ func openUserStoreWithOpts(t *testing.T, opts Options[uint64, User]) *Store[uint
 	return s
 }
 
-func TestOfflineResidencyAlwaysAppliedWhenMaxOnlineNil(t *testing.T) {
+func TestInDiskResidencyAlwaysAppliedWhenMaxOnlineNil(t *testing.T) {
 	dir := t.TempDir()
 
 	opts := Options[uint64, User]{
@@ -70,7 +70,7 @@ func TestOfflineResidencyAlwaysAppliedWhenMaxOnlineNil(t *testing.T) {
 	}
 }
 
-func TestOfflineLargeDatasetResidency(t *testing.T) {
+func TestInDiskLargeDatasetResidency(t *testing.T) {
 	dir := t.TempDir()
 	maxOnline := 10_000
 
@@ -83,7 +83,7 @@ func TestOfflineLargeDatasetResidency(t *testing.T) {
 			// mantém apenas usuários ativos e jovens
 			return u.Active && u.Age < 40
 		},
-		MaxOnlineRecords: &maxOnline,
+		MaxInMemoryRecords: &maxOnline,
 	})
 	if err != nil {
 		t.Fatalf("open failed: %v", err)
@@ -109,7 +109,7 @@ func TestOfflineLargeDatasetResidency(t *testing.T) {
 	}
 }
 
-func TestOfflineLargeDatasetGetOffline(t *testing.T) {
+func TestInDiskLargeDatasetGetInDisk(t *testing.T) {
 	dir := t.TempDir()
 
 	store, err := Open[uint64, User](Options[uint64, User]{
@@ -138,7 +138,7 @@ func TestOfflineLargeDatasetGetOffline(t *testing.T) {
 	}
 }
 
-func TestOfflineLargeDatasetSnapshotReopen(t *testing.T) {
+func TestInDiskLargeDatasetSnapshotReopen(t *testing.T) {
 	dir := t.TempDir()
 	maxOnline := 5_000
 
@@ -147,8 +147,8 @@ func TestOfflineLargeDatasetSnapshotReopen(t *testing.T) {
 		ResidencyFunc: func(u User) bool {
 			return u.Active && u.Age < 30
 		},
-		Dir:              dir,
-		MaxOnlineRecords: &maxOnline,
+		Dir:                dir,
+		MaxInMemoryRecords: &maxOnline,
 	})
 	if err != nil {
 		t.Fatalf("open failed: %v", err)
@@ -168,8 +168,8 @@ func TestOfflineLargeDatasetSnapshotReopen(t *testing.T) {
 		ResidencyFunc: func(u User) bool {
 			return u.Active && u.Age < 30
 		},
-		Dir:              dir,
-		MaxOnlineRecords: &maxOnline,
+		Dir:                dir,
+		MaxInMemoryRecords: &maxOnline,
 	})
 	if err != nil {
 		t.Fatalf("reopen failed: %v", err)
@@ -188,7 +188,7 @@ func TestOfflineLargeDatasetSnapshotReopen(t *testing.T) {
 	}
 }
 
-func TestOfflineLargeDatasetGetStreaming(t *testing.T) {
+func TestInDiskLargeDatasetGetStreaming(t *testing.T) {
 	dir := t.TempDir()
 
 	store, err := Open[uint64, User](Options[uint64, User]{
@@ -218,7 +218,7 @@ func TestOfflineLargeDatasetGetStreaming(t *testing.T) {
 	}
 }
 
-func TestPerf_1MUsers_90PercentOffline_GetFromDisk(t *testing.T) {
+func TestPerf_1MUsers_90PercentInDisk_GetFromDisk(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping performance test")
 	}
@@ -238,8 +238,8 @@ func TestPerf_1MUsers_90PercentOffline_GetFromDisk(t *testing.T) {
 			// mantém apenas 10% em memória
 			return u.Id%10 == 0
 		},
-		Dir:              dir,
-		MaxOnlineRecords: &maxOnline,
+		Dir:                dir,
+		MaxInMemoryRecords: &maxOnline,
 	})
 	if err != nil {
 		t.Fatalf("open failed: %v", err)

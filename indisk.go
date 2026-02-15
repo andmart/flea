@@ -21,7 +21,6 @@ func (s *Store[ID, T]) appendOffline(batch []T) error {
 		}
 		b = append(b, '\n')
 
-		// bigger than buffer. So flush whatever is in the buffer and write directly the big record.
 		if len(b) > cap(buf) {
 			if len(buf) > 0 {
 				if _, err := f.Write(buf); err != nil {
@@ -35,7 +34,6 @@ func (s *Store[ID, T]) appendOffline(batch []T) error {
 			continue
 		}
 
-		// no room for the record. flush and add.
 		if len(buf)+len(b) > cap(buf) {
 			if _, err := f.Write(buf); err != nil {
 				return err
@@ -60,7 +58,7 @@ func (s *Store[ID, T]) handleResidency() error {
 		return nil
 	}
 
-	if s.maxOnline >= 0 && len(s.index) <= s.maxOnline {
+	if s.maxInMemory >= 0 && len(s.index) <= s.maxInMemory {
 		return nil
 	}
 
@@ -80,7 +78,6 @@ func (s *Store[ID, T]) handleResidency() error {
 
 		obj := rec.value
 
-		//already offline
 		if obj == nil {
 			continue
 		}
@@ -89,13 +86,11 @@ func (s *Store[ID, T]) handleResidency() error {
 			continue
 		}
 
-		// marcar para offline
 		offline = append(offline, *rec.value)
 		rec.value = nil
 		s.onlineCount--
 
-		// Se há limite explícito, parar quando normalizar
-		if s.maxOnline >= 0 && s.onlineCount <= s.maxOnline {
+		if s.maxInMemory >= 0 && s.onlineCount <= s.maxInMemory {
 			break
 		}
 

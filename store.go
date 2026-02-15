@@ -58,7 +58,7 @@ type Store[ID comparable, T any] struct {
 	checkers       []Checker[T]
 	residencyFn    func(T) bool
 	hasOfflineData bool
-	maxOnline      int
+	maxInMemory    int
 	onlineCount    int
 }
 
@@ -220,7 +220,7 @@ func Open[ID comparable, T any](opts Options[ID, T]) (*Store[ID, T], error) {
 		index:       make(map[ID]*record[T]),
 		checkers:    opts.Checkers,
 		residencyFn: opts.ResidencyFunc,
-		maxOnline:   *opts.MaxOnlineRecords,
+		maxInMemory: *opts.MaxInMemoryRecords,
 	}
 
 	s.makeDirs()

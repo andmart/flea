@@ -16,8 +16,8 @@ type Options[ID comparable, T any] struct {
 	IDFunc           IDFunc[ID, T]
 	Checkers         []Checker[T]
 	// Experimental: controls which records remain resident in memory
-	ResidencyFunc    func(T) bool
-	MaxOnlineRecords *int
+	ResidencyFunc      func(T) bool
+	MaxInMemoryRecords *int
 }
 
 func (o *Options[ID, T]) Validate() error {
@@ -35,8 +35,8 @@ func (o *Options[ID, T]) Validate() error {
 		o.Checkers = []Checker[T]{}
 	}
 
-	if o.MaxOnlineRecords == nil {
-		o.MaxOnlineRecords = &LOW
+	if o.MaxInMemoryRecords == nil {
+		o.MaxInMemoryRecords = &LOW
 	}
 
 	if o.IDFunc == nil {
