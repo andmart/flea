@@ -556,3 +556,57 @@ func TestPut_Concurrent(t *testing.T) {
 		t.Fatalf("expected %d users, got %d", n, len(users))
 	}
 }
+
+func TestGet_PreservesOrderAcrossMemoryAndDisk(t *testing.T) {
+	dir := t.TempDir()
+
+	minusOne := -1
+
+	store, err := Open[uint64, testUser](Options[uint64, testUser]{
+		Dir: dir,
+		IDFunc: func(u testUser) (uint64, error) {
+			return u.Id, nil
+		},
+		MaxInMemoryRecords: &minusOne,
+		ResidencyFunc: func(u testUser) bool {
+			// ímpares ficam em memória
+			// pares vão para disco
+			return u.Id%2 != 0
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Inserir 20 registros
+	for i := 1; i <= 20; i++ {
+		_, err := store.Put(testUser{
+			Id:  uint64(i),
+			Val: i,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	results := store.Get(func(u testUser) bool {
+		return true
+	})
+
+	if len(results) != 20 {
+		t.Fatalf("expected 20 results, got %d", len(results))
+	}
+
+	// Verificar ordem lógica absoluta
+	for i, u := range results {
+		expectedID := uint64(i + 1)
+		if u.Id != expectedID {
+			t.Fatalf(
+				"order broken at position %d: expected %d, got %d",
+				i,
+				expectedID,
+				u.Id,
+			)
+		}
+	}
+}
