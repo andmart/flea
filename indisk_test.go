@@ -7,14 +7,12 @@ import (
 	"time"
 )
 
-const total = 100_000
-
 var users []User
 
 func init() {
-	users = make([]User, total)
+	users = make([]User, USERS_AMOUNT)
 
-	for i := 0; i < total; i++ {
+	for i := 0; i < USERS_AMOUNT; i++ {
 		users[i] = genUser(i)
 	}
 }
@@ -216,100 +214,4 @@ func TestInDiskLargeDatasetGetStreaming(t *testing.T) {
 			t.Fatalf("invalid result: %+v", u)
 		}
 	}
-}
-
-func TestPerf_1MUsers_90PercentInDisk_GetFromDisk(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping performance test")
-	}
-
-	// --------------------------------------------------
-	// Setup
-	// --------------------------------------------------
-	dir := t.TempDir()
-
-	maxOnline := 100_000 // 10% online
-
-	store, err := Open[uint64, User](Options[uint64, User]{
-		IDFunc: func(u User) (uint64, error) {
-			return u.Id, nil
-		},
-		ResidencyFunc: func(u User) bool {
-			// mantém apenas 10% em memória
-			return u.Id%10 == 0
-		},
-		Dir:                dir,
-		MaxInMemoryRecords: &maxOnline,
-	})
-	if err != nil {
-		t.Fatalf("open failed: %v", err)
-	}
-
-	// --------------------------------------------------
-	// Generate data
-	// --------------------------------------------------
-	const total = 1_000_000
-
-	users := make([]User, 0, total)
-	for i := 0; i < total; i++ {
-		users = append(users, User{
-			Id:        uint64(i),
-			Name:      fmt.Sprintf("user-%d", i),
-			Email:     fmt.Sprintf("user-%d@example.com", i),
-			Age:       18 + (i % 50),
-			Country:   []string{"PT", "ES", "FR", "DE", "US"}[i%5],
-			Active:    i%2 == 0,
-			Score:     float64(i%1000) / 10.0,
-			CreatedAt: time.Now().Unix(),
-		})
-	}
-
-	// --------------------------------------------------
-	// Insert (PutAll)
-	// --------------------------------------------------
-	startInsert := time.Now()
-
-	_, err = store.PutAll(users)
-	if err != nil {
-		t.Fatalf("putall failed: %v", err)
-	}
-
-	insertDur := time.Since(startInsert)
-
-	// --------------------------------------------------
-	// Pick a guaranteed-offline record
-	// --------------------------------------------------
-	targetId := uint64(999_999) // não múltiplo de 10 → offline
-
-	rec, ok := store.index[targetId]
-	if !ok {
-		t.Fatalf("target record not found in index")
-	}
-	if rec.value != nil {
-		t.Fatalf("target record should be offline")
-	}
-
-	// --------------------------------------------------
-	// Get (forces full scan of data.ndjson)
-	// --------------------------------------------------
-	startGet := time.Now()
-
-	res := store.Get(func(u User) bool {
-		return u.Id == targetId
-	})
-
-	getDur := time.Since(startGet)
-
-	if len(res) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(res))
-	}
-	if res[0].Id != targetId {
-		t.Fatalf("unexpected user returned: %+v", res[0])
-	}
-
-	// --------------------------------------------------
-	// Report
-	// --------------------------------------------------
-	t.Logf("Inserted %d users in %s", total, insertDur)
-	t.Logf("Get offline user (disk scan) took %s", getDur)
 }

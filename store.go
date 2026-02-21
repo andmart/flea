@@ -45,6 +45,7 @@ type IDFunc[ID comparable, T any] func(T) (ID, error)
 type record[T any] struct {
 	value   *T
 	deleted bool
+	offset  int64
 }
 
 type Store[ID comparable, T any] struct {
@@ -166,26 +167,54 @@ func (s *Store[ID, T]) Get(p Predicate[T]) []T {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var out []T
-	for _, r := range s.records {
-		if r.deleted {
+	results := make([]T, 0)
+
+	var v T
+
+	for _, rec := range s.records {
+		if rec.deleted {
 			continue
 		}
-		if r.value == nil {
-			continue
+
+		if rec.value != nil {
+			v = *rec.value
+		} else {
+			loaded, err := s.loadFromDisk(rec.offset)
+			if err != nil {
+				return nil
+			}
+			v = loaded
 		}
-		if p(*r.value) {
-			out = append(out, *r.value)
+
+		if p(v) {
+			results = append(results, v)
 		}
 	}
-	if s.hasOfflineData {
-		offline, err := s.getOfflineMatching(p)
-		if err != nil {
-			return out
-		}
-		out = append(out, offline...)
+
+	return results
+}
+
+// Return the value if exists, a bool representing if the value exists or not, and an error if something goes wrong.
+func (s *Store[ID, T]) GetByID(id ID) (T, bool, error) {
+	var v T
+	rec, ok := s.index[id]
+	if !ok || rec.deleted {
+		return v, false, nil
 	}
-	return out
+
+	if rec.value != nil {
+		v = *rec.value
+		return v, true, nil
+	}
+
+	// carregar do disco
+	loaded, err := s.loadFromDisk(rec.offset)
+	if err != nil {
+		return v, false, err
+	}
+
+	v = loaded
+	return v, true, nil
 }
 
 func (s *Store[ID, T]) Delete(p Predicate[T]) ([]T, error) {
