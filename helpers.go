@@ -1,4 +1,4 @@
-package fleastore
+package flea
 
 import (
 	"os"
