@@ -1,10 +1,6 @@
 package fleastore
 
 import (
-	"bufio"
-	"bytes"
-	"encoding/json"
-	"io"
 	"os"
 	"sync"
 )
@@ -46,6 +42,7 @@ type record[T any] struct {
 	value   *T
 	deleted bool
 	offset  int64
+	size    int64
 }
 
 type Store[ID comparable, T any] struct {
@@ -61,6 +58,8 @@ type Store[ID comparable, T any] struct {
 	hasOfflineData bool
 	maxInMemory    int
 	onlineCount    int
+	dataFile       *os.File
+	dataWindow     *dataWindow
 }
 
 // Put inserts a record or update in case the id is already in the index.
@@ -167,7 +166,7 @@ func (s *Store[ID, T]) Get(p Predicate[T]) []T {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	results := make([]T, 0)
+	results := make([]T, 0, len(s.records))
 
 	var v T
 
@@ -179,7 +178,7 @@ func (s *Store[ID, T]) Get(p Predicate[T]) []T {
 		if rec.value != nil {
 			v = *rec.value
 		} else {
-			loaded, err := s.loadFromDisk(rec.offset)
+			loaded, err := s.loadFromDisk(rec.offset, rec.size)
 			if err != nil {
 				return nil
 			}
@@ -208,7 +207,7 @@ func (s *Store[ID, T]) GetByID(id ID) (T, bool, error) {
 	}
 
 	// carregar do disco
-	loaded, err := s.loadFromDisk(rec.offset)
+	loaded, err := s.loadFromDisk(rec.offset, rec.size)
 	if err != nil {
 		return v, false, err
 	}
@@ -250,6 +249,7 @@ func Open[ID comparable, T any](opts Options[ID, T]) (*Store[ID, T], error) {
 		checkers:    opts.Checkers,
 		residencyFn: opts.ResidencyFunc,
 		maxInMemory: *opts.MaxInMemoryRecords,
+		dataWindow:  &dataWindow{},
 	}
 
 	s.makeDirs()
@@ -317,13 +317,13 @@ func (s *Store[ID, T]) runCheckers(old *T, new T) (*T, error) {
 	return current, nil
 }
 
-func (s *Store[ID, T]) getOfflineMatching(predicate func(T) bool) ([]T, error) {
-
-	file, err := os.Open(s.getDataPath())
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
+/*func (s *Store[ID, T]) getOfflineMatching(predicate func(T) bool) ([]T, error) {
+	//
+	//file, err := os.Open(s.getDataPath())
+	//if err != nil {
+	//	return nil, err
+	//}
+	//defer file.Close()
 
 	const batchSize = 1000
 
@@ -370,3 +370,4 @@ func (s *Store[ID, T]) getOfflineMatching(predicate func(T) bool) ([]T, error) {
 
 	return result, nil
 }
+*/

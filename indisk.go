@@ -1,47 +1,55 @@
 package fleastore
 
 import (
-	"bufio"
 	"encoding/json"
 	"io"
 	"os"
 )
 
-func (s *Store[ID, T]) loadFromDisk(offset int64) (T, error) {
+type dataWindow struct {
+	buf        []byte
+	baseOffset int64
+}
+
+func (w *dataWindow) read(file *os.File, offset, size int64) ([]byte, error) {
+
+	if offset >= w.baseOffset && offset+size <= w.baseOffset+int64(len(w.buf)) {
+		start := offset - w.baseOffset
+		return w.buf[start : start+size], nil
+	}
+
+	if len(w.buf) == 0 {
+		w.buf = make([]byte, max(4096, int(size)*10))
+	}
+	n, err := file.ReadAt(w.buf, offset)
+	if err != nil && err != io.EOF {
+		return nil, err
+	}
+	w.baseOffset = offset
+	w.buf = w.buf[:n]
+
+	start := offset - w.baseOffset
+	return w.buf[start : start+size], nil
+}
+
+func (s *Store[ID, T]) loadFromDisk(offset, size int64) (T, error) {
 	var zero T
 
-	f, err := os.Open(s.getDataPath())
-	if err != nil {
-		return zero, err
-	}
-	defer f.Close()
-
-	if _, err := f.Seek(offset, io.SeekStart); err != nil {
-		return zero, err
-	}
-
-	reader := bufio.NewReader(f)
-	line, err := reader.ReadBytes('\n')
-	if err != nil {
-		return zero, err
-	}
-
 	var v T
-	if err := json.Unmarshal(line, &v); err != nil {
+
+	data, err := s.dataWindow.read(s.dataFile, offset, size)
+	if err != nil {
 		return zero, err
 	}
-
+	if err := json.Unmarshal(data, &v); err != nil {
+		return zero, err
+	}
 	return v, nil
 }
 
-func (s *Store[ID, T]) appendOffline(batch []*record[T]) error {
-	f, err := os.OpenFile(s.getDataPath(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
+func (s *Store[ID, T]) appendToDisk(batch []*record[T]) error {
 
-	offset, err := f.Seek(0, io.SeekEnd)
+	offset, err := s.dataFile.Seek(0, io.SeekEnd)
 	if err != nil {
 		return err
 	}
@@ -56,14 +64,13 @@ func (s *Store[ID, T]) appendOffline(batch []*record[T]) error {
 			return err
 		}
 
-		b = append(b, '\n')
-
-		if _, err := f.Write(b); err != nil {
+		if _, err := s.dataFile.Write(b); err != nil {
 			return err
 		}
 
 		rec.offset = offset
-		offset += int64(len(b))
+		rec.size = int64(len(b))
+		offset += rec.size
 		rec.value = nil
 	}
 
@@ -116,5 +123,5 @@ func (s *Store[ID, T]) handleResidency() error {
 		}
 
 	}
-	return s.appendOffline(offline)
+	return s.appendToDisk(offline)
 }

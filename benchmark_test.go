@@ -80,10 +80,11 @@ func BenchmarkGet_All_MixedMemoryDisk(b *testing.B) {
 		values[i] = testUser{Id: uint64(i + 1), Val: i}
 	}
 	store.PutAll(values)
-
+	var result []testUser
 	for b.Loop() {
-		store.Get(func(u testUser) bool { return true })
+		result = store.Get(func(u testUser) bool { return true })
 	}
+	_ = result
 }
 
 func BenchmarkPerf_1MUsers_90PercentInDisk_GetFromDisk(b *testing.B) {
