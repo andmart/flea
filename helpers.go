@@ -50,8 +50,8 @@ func (s *Store[ID, T]) handleDataFile(f func(T) bool) error {
 
 	if f != nil {
 		dataPath := s.getDataPath()
-
-		f, err := os.OpenFile(
+		var err error
+		s.dataFile, err = os.OpenFile(
 			dataPath,
 			os.O_CREATE|os.O_RDWR,
 			0644,
@@ -59,8 +59,6 @@ func (s *Store[ID, T]) handleDataFile(f func(T) bool) error {
 		if err != nil {
 			return err
 		}
-
-		_ = f.Close()
 		s.hasOfflineData = true
 	}
 	return nil
