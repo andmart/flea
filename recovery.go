@@ -8,7 +8,7 @@ import (
 
 func (s *Store[ID, T]) replayWAL() error {
 	path := s.getWalPath()
-	f, err := os.Open(path)
+	f, err := os.OpenFile(path, os.O_RDWR, 0644)
 	if err != nil {
 		return nil
 	}

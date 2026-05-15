@@ -2,6 +2,8 @@ package flea
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -24,6 +26,14 @@ func (o *Options[ID, T]) Validate() error {
 	// Dir default: current directory
 	if o.Dir == "" {
 		o.Dir = "."
+	}
+
+	if !filepath.IsAbs(o.Dir) {
+		cdir, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		o.Dir = filepath.Join(cdir, o.Dir)
 	}
 
 	// SnapshotInterval default: 30s
