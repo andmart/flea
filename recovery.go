@@ -27,7 +27,7 @@ func (s *Store[ID, T]) replayWAL() error {
 			s.deleteByID(op.ID)
 		}
 	}
-	truncate(f)
+	
 	s.handleResidency()
 	return nil
 }
