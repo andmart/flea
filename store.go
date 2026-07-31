@@ -110,6 +110,15 @@ func (s *Store[ID, T]) Put(value T) (ID, error) {
 
 }
 
+func (s *Store[ID, T]) Count() int {
+	return len(s.index)
+}
+
+func (s *Store[ID, T]) CountIf(p Predicate[T]) int {
+	recs := s.Get(p)
+	return len(recs)
+}
+
 func (s *Store[ID, T]) PutAll(values []T) ([]ID, error) {
 
 	s.mu.Lock()
