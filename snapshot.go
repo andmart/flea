@@ -3,6 +3,7 @@ package flea
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"os"
 	"time"
 )
@@ -77,9 +78,9 @@ func (s *Store[ID, T]) snapshot() error {
 	f.Close()
 
 	if err := os.Rename(tmp, final); err != nil {
+		fmt.Println(err.Error())
 		return err
 	}
-
 	// reset WAL
 	truncate(s.wal.file)
 
