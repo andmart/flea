@@ -40,8 +40,9 @@ func sanitizeTypeName(name string) string {
 		".", "_",
 		"/", "_",
 		"*", "",
-		"[", "",
+		"[", "_",
 		"]", "",
+		",", "_",
 	)
 	return strings.ToLower(replacer.Replace(name))
 }
