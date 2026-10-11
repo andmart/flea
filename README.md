@@ -104,7 +104,7 @@ type Options[ID comparable, T any] struct {
     SnapshotInterval time.Duration
     IDFunc           IDFunc[ID, T]
     Checkers         []Checker[T]
-
+    OnCreate         func(*Store[ID, T]) error
     ResidencyFunc    ResidencyFunc[T]
     MaxOnline        *int
 }
@@ -168,6 +168,52 @@ If no checkers are provided, values are written as-is.
 
 Checkers are applied only to new write operations and are not executed during recovery.
 
+
+### OnCreate (optional)
+
+```go
+OnCreate func(*Store[ID, T]) error
+```
+
+OnCreate is called when a store is opened for the first time, if its storage does not already exist.
+
+The callback receives the opened store and can use its public API to initialize the database.
+
+This is useful for:
+
+- Inserting initial records
+- Loading seed data
+- Creating default application data
+
+Example:
+
+```go
+store, err := Open[uint64, User](Options[uint64, User]{
+    Dir: "./data/users",
+    IDFunc: func(u User) (uint64, error) {
+        return u.Id, nil
+    },
+    OnCreate: func(store *Store[uint64, User]) error {
+        users := []User{
+            {Id: 1, Name: "Alice", Age: 30},
+            {Id: 2, Name: "Bob", Age: 25},
+        }
+
+        _, err := store.PutAll(users)
+        return err
+    },
+})
+if err != nil {
+    log.Fatal(err)
+}
+defer store.Close()
+```
+
+The callback is not executed when reopening an existing store.
+
+If OnCreate returns an error, Open returns an error.
+
+Note: If initialization fails after writing some records, the storage may contain partial data. Initialization callbacks should account for this possibility if retrying is required.
 
 ## Residency
 
