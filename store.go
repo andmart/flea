@@ -263,6 +263,8 @@ func Open[ID comparable, T any](opts Options[ID, T]) (*Store[ID, T], error) {
 
 	s.makeDirs()
 
+	hasFiles := s.checkFiles()
+
 	s.handleDataFile(s.residencyFn)
 
 	if err := s.loadSnapshot(); err != nil {
@@ -284,6 +286,13 @@ func Open[ID comparable, T any](opts Options[ID, T]) (*Store[ID, T], error) {
 	}
 
 	go s.snapshotLoop(opts.SnapshotInterval)
+
+	if !hasFiles && opts.OnCreate != nil {
+		if err := opts.OnCreate(s);err != nil{
+			s.Close()
+			return nil, err
+		}
+	}
 
 	return s, nil
 }

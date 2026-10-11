@@ -1,6 +1,7 @@
 package flea
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -33,6 +34,15 @@ func (s *Store[ID, T]) getModelName() string {
 func (s *Store[ID, T]) makeDirs() {
 	path := s.getPath("")
 	os.MkdirAll(path, os.ModePerm)
+}
+
+func (s *Store[ID, T]) checkFiles() bool {
+	path := s.getWalPath()
+	_, err := os.Stat(path)
+	if err != nil && errors.Is(err, os.ErrNotExist) {
+		return false
+	}
+	return true
 }
 
 func sanitizeTypeName(name string) string {
