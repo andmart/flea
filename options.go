@@ -20,6 +20,8 @@ type Options[ID comparable, T any] struct {
 	// Experimental: controls which records remain resident in memory
 	ResidencyFunc      func(T) bool
 	MaxInMemoryRecords *int
+	// Called when the store is created for the first time.
+    OnCreate func(*Store[ID, T]) error
 }
 
 func (o *Options[ID, T]) Validate() error {
