@@ -231,18 +231,121 @@ func (s *Store[ID, T]) Delete(p Predicate[T]) ([]T, error) {
 
 	var out []T
 	for idx, rec := range s.index {
-		if !rec.deleted && p(*rec.value) {
+		if rec.deleted {
+			continue
+		}
+
+		var v T
+
+		if rec.value != nil {
+			v = *rec.value
+		} else {
+			loaded, err := s.loadFromDisk(rec.offset, rec.size)
+			if err != nil {
+				return nil, err // ajuste ao tipo de retorno de Delete
+			}
+			v = loaded
+		}
+
+		if p(v) {
 			err := s.wal.append([]walOp[ID, T]{{Op: opDelete, ID: idx}})
 			if err != nil {
 				return nil, err
 			}
 			rec.deleted = true
 			delete(s.index, idx)
-			out = append(out, *rec.value)
+			out = append(out, v)
 			s.dirty = true
 		}
 	}
 	return out, nil
+}
+
+// TakeWhile returns records in insertion order, stopping as soon as the predicate
+// returns false for the first time. This is useful for ordered data, where the
+// predicate is expected to hold for a contiguous prefix of the records.
+//
+// Logically deleted records are skipped and do not interrupt the scan.
+// Offline records are loaded from disk only while the predicate keeps holding.
+func (s *Store[ID, T]) TakeWhile(predicate Predicate[T]) ([]T, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var v T
+	results := []T{}
+
+	for _, rec := range s.records {
+		if rec.deleted {
+			continue
+		}
+
+		if rec.value != nil {
+			v = *rec.value
+		} else {
+			loaded, err := s.loadFromDisk(rec.offset, rec.size)
+			if err != nil {
+				return nil, err
+			}
+			v = loaded
+		}
+
+		if !predicate(v) {
+			break
+		}
+
+		results = append(results, v)
+	}
+
+	return results, nil
+}
+
+// Limit returns up to n records starting at the given offset, in insertion order.
+// Logically deleted records are skipped and do not count toward the offset or limit.
+// Offline records are loaded from disk only when they are about to be returned,
+// so skipped records never trigger disk I/O.
+func (s *Store[ID, T]) Limit(n, offset int) ([]T, error) {
+	if n <= 0 {
+		return []T{}, nil
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var v T
+	results := make([]T, 0, n)
+	skipped := 0
+
+	for _, rec := range s.records {
+		if rec.deleted {
+			continue
+		}
+
+		// Skip records before the offset without loading them from disk.
+		if skipped < offset {
+			skipped++
+			continue
+		}
+
+		if rec.value != nil {
+			v = *rec.value
+		} else {
+			loaded, err := s.loadFromDisk(rec.offset, rec.size)
+			if err != nil {
+				return nil, err
+			}
+			v = loaded
+		}
+
+		results = append(results, v)
+		if len(results) >= n {
+			break
+		}
+	}
+
+	return results, nil
 }
 
 func Open[ID comparable, T any](opts Options[ID, T]) (*Store[ID, T], error) {
@@ -288,7 +391,7 @@ func Open[ID comparable, T any](opts Options[ID, T]) (*Store[ID, T], error) {
 	go s.snapshotLoop(opts.SnapshotInterval)
 
 	if !hasFiles && opts.OnCreate != nil {
-		if err := opts.OnCreate(s);err != nil{
+		if err := opts.OnCreate(s); err != nil {
 			s.Close()
 			return nil, err
 		}
