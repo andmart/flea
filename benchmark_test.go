@@ -50,7 +50,7 @@ func BenchmarkStore_Load_Users(b *testing.B) {
 			b.Fatal(err)
 		}
 
-		getAll := store.Get(func(u User) bool {
+		getAll,_ := store.Get(func(u User) bool {
 			return true
 		})
 
@@ -82,7 +82,7 @@ func BenchmarkGet_All_MixedMemoryDisk(b *testing.B) {
 	store.PutAll(values)
 	var result []testUser
 	for b.Loop() {
-		result = store.Get(func(u testUser) bool { return true })
+		result, _ = store.Get(func(u testUser) bool { return true })
 	}
 	_ = result
 }

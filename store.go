@@ -46,7 +46,7 @@ type record[T any] struct {
 }
 
 type Store[ID comparable, T any] struct {
-	mu             sync.Mutex
+	mu             sync.RWMutex
 	records        []*record[T]
 	dir            string
 	wal            *wal[ID, T]
@@ -60,6 +60,49 @@ type Store[ID comparable, T any] struct {
 	onlineCount    int
 	dataFile       *os.File
 	dataWindow     *dataWindow
+	isDesc         bool
+}
+
+// --- STORE API ---
+
+func (s *Store[ID, T]) Get(p Predicate[T]) ([]T, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	seq, errPtr := s.iterate(false)
+	return getImpl(seq, errPtr, p)
+}
+
+func (s *Store[ID, T]) Limit(n, offset int) ([]T, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	seq, errPtr := s.iterate(false)
+	return limitImpl(seq, errPtr, n, offset)
+}
+
+func (s *Store[ID, T]) TakeWhile(p Predicate[T]) ([]T, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	seq, errPtr := s.iterate(false)
+	return takeWhileImpl(seq, errPtr, p)
+}
+
+func (s *Store[ID, T]) Delete(p Predicate[T]) ([]T, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	seq, errPtr := s.iterate(false)
+	return deleteImpl(s, seq, errPtr, p)
+}
+
+// DeleteLimit removes up to n records that match the predicate, starting from
+// the given offset, scanning in insertion order (ascending).
+// Only records that match the predicate count toward the offset and n.
+// It returns the deleted values.
+func (s *Store[ID, T]) DeleteLimit(n, offset int, p Predicate[T]) ([]T, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	seq, errPtr := s.iterate(false)
+	return deleteLimitImpl(s, seq, errPtr, n, offset, p)
 }
 
 // Put inserts a record or update in case the id is already in the index.
@@ -114,9 +157,9 @@ func (s *Store[ID, T]) Count() int {
 	return len(s.index)
 }
 
-func (s *Store[ID, T]) CountIf(p Predicate[T]) int {
-	recs := s.Get(p)
-	return len(recs)
+func (s *Store[ID, T]) CountIf(p Predicate[T]) (int, error) {
+	recs, err := s.Get(p)
+	return len(recs), err
 }
 
 func (s *Store[ID, T]) PutAll(values []T) ([]ID, error) {
@@ -168,39 +211,7 @@ func (s *Store[ID, T]) PutAll(values []T) ([]ID, error) {
 	return ids, nil
 }
 
-func (s *Store[ID, T]) Get(p Predicate[T]) []T {
-	if p == nil {
-		return nil
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
-	results := make([]T, 0, len(s.records))
-
-	var v T
-
-	for _, rec := range s.records {
-		if rec.deleted {
-			continue
-		}
-
-		if rec.value != nil {
-			v = *rec.value
-		} else {
-			loaded, err := s.loadFromDisk(rec.offset, rec.size)
-			if err != nil {
-				return nil
-			}
-			v = loaded
-		}
-
-		if p(v) {
-			results = append(results, v)
-		}
-	}
-
-	return results
-}
 
 // Return the value if exists, a bool representing if the value exists or not, and an error if something goes wrong.
 func (s *Store[ID, T]) GetByID(id ID) (T, bool, error) {
@@ -225,128 +236,6 @@ func (s *Store[ID, T]) GetByID(id ID) (T, bool, error) {
 	return v, true, nil
 }
 
-func (s *Store[ID, T]) Delete(p Predicate[T]) ([]T, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	var out []T
-	for idx, rec := range s.index {
-		if rec.deleted {
-			continue
-		}
-
-		var v T
-
-		if rec.value != nil {
-			v = *rec.value
-		} else {
-			loaded, err := s.loadFromDisk(rec.offset, rec.size)
-			if err != nil {
-				return nil, err // ajuste ao tipo de retorno de Delete
-			}
-			v = loaded
-		}
-
-		if p(v) {
-			err := s.wal.append([]walOp[ID, T]{{Op: opDelete, ID: idx}})
-			if err != nil {
-				return nil, err
-			}
-			rec.deleted = true
-			delete(s.index, idx)
-			out = append(out, v)
-			s.dirty = true
-		}
-	}
-	return out, nil
-}
-
-// TakeWhile returns records in insertion order, stopping as soon as the predicate
-// returns false for the first time. This is useful for ordered data, where the
-// predicate is expected to hold for a contiguous prefix of the records.
-//
-// Logically deleted records are skipped and do not interrupt the scan.
-// Offline records are loaded from disk only while the predicate keeps holding.
-func (s *Store[ID, T]) TakeWhile(predicate Predicate[T]) ([]T, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	var v T
-	results := []T{}
-
-	for _, rec := range s.records {
-		if rec.deleted {
-			continue
-		}
-
-		if rec.value != nil {
-			v = *rec.value
-		} else {
-			loaded, err := s.loadFromDisk(rec.offset, rec.size)
-			if err != nil {
-				return nil, err
-			}
-			v = loaded
-		}
-
-		if !predicate(v) {
-			break
-		}
-
-		results = append(results, v)
-	}
-
-	return results, nil
-}
-
-// Limit returns up to n records starting at the given offset, in insertion order.
-// Logically deleted records are skipped and do not count toward the offset or limit.
-// Offline records are loaded from disk only when they are about to be returned,
-// so skipped records never trigger disk I/O.
-func (s *Store[ID, T]) Limit(n, offset int) ([]T, error) {
-	if n <= 0 {
-		return []T{}, nil
-	}
-	if offset < 0 {
-		offset = 0
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	var v T
-	results := make([]T, 0, n)
-	skipped := 0
-
-	for _, rec := range s.records {
-		if rec.deleted {
-			continue
-		}
-
-		// Skip records before the offset without loading them from disk.
-		if skipped < offset {
-			skipped++
-			continue
-		}
-
-		if rec.value != nil {
-			v = *rec.value
-		} else {
-			loaded, err := s.loadFromDisk(rec.offset, rec.size)
-			if err != nil {
-				return nil, err
-			}
-			v = loaded
-		}
-
-		results = append(results, v)
-		if len(results) >= n {
-			break
-		}
-	}
-
-	return results, nil
-}
 
 func Open[ID comparable, T any](opts Options[ID, T]) (*Store[ID, T], error) {
 

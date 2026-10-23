@@ -124,7 +124,7 @@ func TestInDiskLargeDatasetGetInDisk(t *testing.T) {
 	store.PutAll(users)
 
 	// força leitura pesada do offline
-	res := store.Get(func(u User) bool {
+	res,_ := store.Get(func(u User) bool {
 		return u.Country == "PT" && u.Score > 50
 	})
 
@@ -202,7 +202,7 @@ func TestInDiskLargeDatasetGetStreaming(t *testing.T) {
 
 	store.PutAll(users)
 
-	res := store.Get(func(u User) bool {
+	res,_ := store.Get(func(u User) bool {
 		return u.Id%777 == 0
 	})
 	if err != nil {
