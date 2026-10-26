@@ -307,6 +307,47 @@ adults := store.Get(func(u User) bool {
 
 ------------------------------------------------------------------------
 
+### Limit
+
+`Limit` returns up to n records, skipping the first offset records, in insertion order.
+
+- Logically deleted records are skipped and do not count toward the offset or the limit.
+
+- Offline records are loaded from disk only when they are about to be returned, so skipped records never trigger disk I/O.
+
+- Returns an empty (non-nil) slice if no records are found.
+
+Example:
+
+```go
+// Get the first 10 adults, skipping the first 20 records
+adults, err := store.Limit(10, 20)
+```
+------------------------------------------------------------------------
+
+### TakeWhile
+
+`TakeWhile` returns records in insertion order, stopping as soon as the predicate returns false for the first time.
+
+- Useful for ordered data, where the predicate is expected to hold for a contiguous prefix of the records.
+
+- Logically deleted records are skipped and do not interrupt the scan.
+
+- Offline records are loaded from disk only while the predicate keeps holding.
+
+- Returns an empty (non-nil) slice if no records match.
+
+Example:
+
+```go
+// Get all users until the first one under 18
+minors, err := store.TakeWhile(func(u User) bool {
+    return u.Age >= 18
+})
+```
+
+------------------------------------------------------------------------
+
 ## Delete
 
 ``` go
@@ -323,6 +364,24 @@ If no values match the predicate, the operation succeeds and returns an empty sl
 
 ------------------------------------------------------------------------
 
+### DeleteLimit
+
+`DeleteLimit` removes up to n records that match the predicate, starting from the given offset, in insertion order.
+
+- Only records that match the predicate count toward the offset and n.
+- Deleted values are returned in the order they were found.
+- The operation is persisted and survives restarts.
+
+Example:
+
+```go
+// Delete the first 5 users aged 65 or older
+deleted, err := store.DeleteLimit(5, 0, func(u User) bool {
+    return u.Age >= 65
+})
+```
+
+------------------------------------------------------------------------
 
 ## Predicates
 
@@ -355,6 +414,65 @@ type Checker[T any] func(old *T, new T) (*T, error)
 
 Checkers are only applied to new writes and updates.  
 Recovered data is restored exactly as it was written.
+
+------------------------------------------------------------------------
+## Views (Reverse Iteration)
+
+A View provides a read-only, order-aware cursor over the store's records. It is created using Desc():
+
+```go
+view := store.Desc()
+```
+
+The View scans records in reverse insertion order (newest first). It shares the same underlying data and lock as the Store, but it does not expose Put or Delete (only DeleteLimit).
+
+------------------------------------------------------------------------
+
+### View.Get
+
+`View.Get` returns all records that match the predicate, scanning in reverse insertion order.
+
+Always returns a non-nil slice (empty if no records match).
+
+------------------------------------------------------------------------
+
+### View.Limit
+
+`View.Limit` returns up to n records, skipping the first offset records, in reverse insertion order.
+
+Logically deleted records are skipped and do not count toward the offset or the limit.
+
+Always returns a non-nil slice.
+
+------------------------------------------------------------------------
+
+### View.TakeWhile
+
+`View.TakeWhile` returns records in reverse insertion order, stopping as soon as the predicate returns false for the first time.
+
+Logically deleted records are skipped and do not interrupt the scan.
+
+Always returns a non-nil slice.
+
+
+------------------------------------------------------------------------
+
+### View.DeleteLimit
+
+`View.DeleteLimit` removes up to n records that match the predicate, starting from the given offset, in reverse insertion order.
+
+Only records that match the predicate count toward the offset and n.
+
+The operation is persisted and survives restarts.
+
+Example:
+
+```go
+// Delete the 3 most recent users aged 65 or older
+deleted, err := store.Desc().DeleteLimit(3, 0, func(u User) bool {
+    return u.Age >= 65
+})
+```
 
 ------------------------------------------------------------------------
 

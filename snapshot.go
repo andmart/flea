@@ -30,8 +30,6 @@ func (s *Store[ID, T]) loadSnapshot() error {
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		var i T
-		//TODO: Os arquivos offline sao escritos como null no snapshot e precisam ser rehidratados corretamente.
-		//Atualmente está criando objetos vazios
 		if err := json.Unmarshal(sc.Bytes(), &i); err != nil {
 			return err
 		}

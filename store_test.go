@@ -66,7 +66,7 @@ func TestPutUpdateAndGet(t *testing.T) {
 	_, _ = s.Put(User{Id: 2, Name: "Bob"})
 	_, _ = s.Put(User{Id: 1, Name: "Alice v2"}) // update
 
-	users := s.Get(all[User])
+	users, _ := s.Get(all[User])
 
 	if len(users) != 2 {
 		t.Fatalf("expected 2 users, got %d", len(users))
@@ -99,7 +99,7 @@ func TestStore_PersistUsersAcrossRestart(t *testing.T) {
 	s.Put(u1)
 	s.Put(u2)
 
-	users := s.Get(func(User) bool { return true })
+	users, _ := s.Get(func(User) bool { return true })
 	if len(users) != 2 {
 		t.Fatalf("expected 2 users, got %d", len(users))
 	}
@@ -112,7 +112,7 @@ func TestStore_PersistUsersAcrossRestart(t *testing.T) {
 	s = openUserStore(t, dir)
 	defer s.Close()
 
-	users = s.Get(func(User) bool { return true })
+	users, _ = s.Get(func(User) bool { return true })
 	if len(users) != 2 {
 		t.Fatalf("expected 2 users after restart, got %d", len(users))
 	}
@@ -179,7 +179,7 @@ func TestStore_TwoTypesInParallel(t *testing.T) {
 
 	defer userStore.Close()
 
-	users := userStore.Get(func(User) bool { return true })
+	users, _ := userStore.Get(func(User) bool { return true })
 	if len(users) != 2 {
 		t.Fatalf("expected 2 users, got %d", len(users))
 	}
@@ -188,7 +188,7 @@ func TestStore_TwoTypesInParallel(t *testing.T) {
 	orderStore := openOrderStore(t, dir)
 	defer orderStore.Close()
 
-	orders := orderStore.Get(func(Order) bool { return true })
+	orders, _ := orderStore.Get(func(Order) bool { return true })
 	if len(orders) != 2 {
 		t.Fatalf("expected 2 orders, got %d", len(orders))
 	}
@@ -223,7 +223,7 @@ func TestPut_User_BlockChecker(t *testing.T) {
 		t.Fatalf("expected error, got nil")
 	}
 
-	users := s.Get(nil)
+	users, _ := s.Get(nil)
 	if len(users) != 0 {
 		t.Fatalf("expected no records, got %d", len(users))
 	}
@@ -238,7 +238,7 @@ func TestPut_UpdatePreservesInsertionOrder(t *testing.T) {
 	s.Put(User{Id: 2, Name: "B"})
 	s.Put(User{Id: 1, Name: "A v2"}) // update
 
-	users := s.Get(all[User])
+	users, _ := s.Get(all[User])
 
 	if len(users) != 2 {
 		t.Fatalf("expected 2 users, got %d", len(users))
@@ -258,7 +258,7 @@ func TestPut_UpdateDoesNotCreateDuplicate(t *testing.T) {
 	s.Put(User{Id: 1, Name: "Alice v2"})
 	s.Put(User{Id: 1, Name: "Alice v3"})
 
-	users := s.Get(all[User])
+	users, _ := s.Get(all[User])
 
 	if len(users) != 1 {
 		t.Fatalf("expected 1 user, got %d", len(users))
@@ -289,7 +289,7 @@ func TestDelete_ByPredicate(t *testing.T) {
 		t.Fatalf("unexpected deleted users: %+v", deleted)
 	}
 
-	users := s.Get(all[User])
+	users, _ := s.Get(all[User])
 	if len(users) != 2 {
 		t.Fatalf("expected 2 remaining users, got %d", len(users))
 	}
@@ -312,7 +312,7 @@ func TestDelete_PersistedAcrossRestart(t *testing.T) {
 	s = openUserStore(t, dir)
 	defer s.Close()
 
-	users := s.Get(all[User])
+	users, _ := s.Get(all[User])
 
 	if len(users) != 1 {
 		t.Fatalf("expected 1 user after restart, got %d", len(users))
@@ -337,7 +337,7 @@ func TestPut_User_NormalizeChecker(t *testing.T) {
 
 	s.Put(User{Id: 1, Name: "alice"})
 
-	users := s.Get(all[User])
+	users, _ := s.Get(all[User])
 
 	if users[0].Name != "ALICE" {
 		t.Fatalf("expected normalized name, got %s", users[0].Name)
@@ -383,7 +383,7 @@ func TestCheckerDoesNotRunOnReplay(t *testing.T) {
 	s = openUserStore(t, dir, blockingChecker)
 	defer s.Close()
 
-	users := s.Get(all[User])
+	users, _ := s.Get(all[User])
 	if len(users) != 1 {
 		t.Fatalf("expected user to be restored despite checker")
 	}
@@ -409,7 +409,7 @@ func TestDelete_NoMatchIsNoOp(t *testing.T) {
 		t.Fatalf("expected no deleted users, got %+v", deleted)
 	}
 
-	users := s.Get(all[User])
+	users, _ := s.Get(all[User])
 	if len(users) != 1 {
 		t.Fatalf("unexpected state after delete")
 	}
@@ -422,7 +422,7 @@ func TestGet_NoMatch(t *testing.T) {
 
 	s.Put(User{Id: 1, Name: "Alice"})
 
-	users := s.Get(func(u User) bool {
+	users, _ := s.Get(func(u User) bool {
 		return u.Age > 100
 	})
 
@@ -448,7 +448,7 @@ func TestDelete_All(t *testing.T) {
 		t.Fatalf("expected 2 deleted users, got %d", len(deleted))
 	}
 
-	users := s.Get(all[User])
+	users, _ := s.Get(all[User])
 	if len(users) != 0 {
 		t.Fatalf("expected empty store after delete-all")
 	}
@@ -473,7 +473,7 @@ func TestPut_IDFuncError(t *testing.T) {
 		t.Fatalf("expected error from IDFunc")
 	}
 
-	users := s.Get(all[User])
+	users, _ := s.Get(all[User])
 	if len(users) != 0 {
 		t.Fatalf("store modified despite IDFunc error")
 	}
@@ -488,7 +488,7 @@ func TestPut_Delete_PutSameID(t *testing.T) {
 	s.Delete(func(u User) bool { return u.Id == 1 })
 	s.Put(User{Id: 1, Name: "Alice v2"})
 
-	users := s.Get(all[User])
+	users, _ := s.Get(all[User])
 	if len(users) != 1 {
 		t.Fatalf("expected 1 user, got %d", len(users))
 	}
@@ -523,10 +523,10 @@ func TestGet_ReturnedValueIsCopy(t *testing.T) {
 
 	s.Put(User{Id: 1, Name: "Alice"})
 
-	users := s.Get(all[User])
+	users, _ := s.Get(all[User])
 	users[0].Name = "Hacked"
 
-	users2 := s.Get(all[User])
+	users2, _ := s.Get(all[User])
 	if users2[0].Name != "Alice" {
 		t.Fatalf("store value was mutated through Get")
 	}
@@ -551,7 +551,7 @@ func TestPut_Concurrent(t *testing.T) {
 		<-done
 	}
 
-	users := s.Get(all[User])
+	users, _ := s.Get(all[User])
 	if len(users) != n {
 		t.Fatalf("expected %d users, got %d", n, len(users))
 	}
@@ -589,7 +589,7 @@ func TestGet_PreservesOrderAcrossMemoryAndDisk(t *testing.T) {
 		}
 	}
 
-	results := store.Get(func(u testUser) bool {
+	results, _ := store.Get(func(u testUser) bool {
 		return true
 	})
 

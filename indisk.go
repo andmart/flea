@@ -57,9 +57,6 @@ func (s *Store[ID, T]) appendToDisk(batch []*record[T]) error {
 	}
 
 	for _, rec := range batch {
-		if err != nil {
-			return err
-		}
 
 		b, err := json.Marshal(*rec.value)
 		if err != nil {

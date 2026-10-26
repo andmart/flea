@@ -57,7 +57,7 @@ func TestOpen_OnCreate(t *testing.T) {
 		t.Fatalf("OnCreate called %d times after reopen, want 1", called)
 	}
 
-	users := store.Get(func(u User) bool {
+	users,_ := store.Get(func(u User) bool {
 		return u.Id == 1
 	})
 
