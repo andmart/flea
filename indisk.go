@@ -18,8 +18,10 @@ func (w *dataWindow) read(file *os.File, offset, size int64) ([]byte, error) {
 		return w.buf[start : start+size], nil
 	}
 
-	if len(w.buf) == 0 {
+	if int64(cap(w.buf)) < size {
 		w.buf = make([]byte, max(4096, int(size)*10))
+	} else {
+		w.buf = w.buf[:cap(w.buf)]
 	}
 	n, err := file.ReadAt(w.buf, offset)
 	if err != nil && err != io.EOF {
